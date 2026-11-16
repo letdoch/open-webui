@@ -115,6 +115,7 @@
 	import ConfirmDialog from '../common/ConfirmDialog.svelte';
 	import MoreHorizontalIcon from './Sidebar/icons/MoreHorizontal.svelte';
 	import MobileSwipePanel from '../common/MobileSwipePanel.svelte';
+	import PortalNavItem from '$lib/components/portal/PortalNavItem.svelte'; // gateway-bridge
 
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
@@ -1234,6 +1235,7 @@
 							</div>
 						{/if}
 					{/each}
+					<PortalNavItem collapsed={true} /> <!-- gateway-bridge -->
 				</div>
 			</div>
 
@@ -1485,6 +1487,7 @@
 								{/if}
 							{/each}
 						</div>
+						<PortalNavItem /> <!-- gateway-bridge -->
 					</div>
 
 					{#if $visiblePinnedModels.length > 0}

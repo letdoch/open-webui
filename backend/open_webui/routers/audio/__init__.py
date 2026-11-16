@@ -60,6 +60,7 @@ from open_webui.utils.headers import include_user_info_headers
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import strict_match_mime_type
 from open_webui.utils.session_pool import get_session
+from open_webui.gateway_bridge import GatewayMediaSessionAuth  # gateway-bridge
 from pydantic import BaseModel, Field
 
 # pydub needs stdlib audioop (gone in 3.13); keep requires-python capped < 3.13
@@ -445,7 +446,7 @@ async def _tts_openai(request, payload, file_path, file_body_path, user):
 
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}',
+        'Authorization': await GatewayMediaSessionAuth.authorization(request, user, api_base_url, api_key),  # gateway-bridge
     }
     if ENABLE_FORWARD_USER_INFO_HEADERS:
         headers = include_user_info_headers(headers, user)
@@ -458,11 +459,19 @@ async def _tts_openai(request, payload, file_path, file_body_path, user):
             json=payload,
             headers=headers,
             ssl=AIOHTTP_CLIENT_SESSION_SSL,
+            allow_redirects=GatewayMediaSessionAuth.allow_redirects(request),  # gateway-bridge
         )
         r.raise_for_status()
 
         audio_data = await r.read()
         content_type = r.headers.get('Content-Type', 'audio/mpeg')
+
+        if GatewayMediaSessionAuth.is_enabled(request):  # gateway-bridge
+            GatewayMediaSessionAuth.validate_audio(audio_data, content_type)
+            await _write_tts_cache(file_path, audio_data, file_body_path, payload, content_type)
+            async with aiofiles.open(file_path.with_suffix('.mime'), 'w') as f:
+                await f.write(content_type)
+            return FileResponse(file_path, media_type=content_type)
 
         if USE_SLIM:
             await _write_tts_cache(file_path, audio_data, file_body_path, payload, content_type)
@@ -819,9 +828,17 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             + (b':slim' if USE_SLIM else b'')
         ).hexdigest()
 
-    extension = 'wav' if engine == 'openai-realtime' else 'mp3'
-    file_path = SPEECH_CACHE_DIR.joinpath(f'{name}.{extension}')
-    file_body_path = SPEECH_CACHE_DIR.joinpath(f'{name}.json')
+    cache_dir = SPEECH_CACHE_DIR  # gateway-bridge
+    oauth_media = GatewayMediaSessionAuth.is_enabled(request) and engine == 'openai'  # gateway-bridge
+    if oauth_media:  # gateway-bridge
+        scope = await GatewayMediaSessionAuth.cache_scope(
+            request, user, await Config.get('audio.tts.openai.api_base_url')
+        )
+        name = hashlib.sha256((scope + ':' + name).encode('utf-8')).hexdigest()
+        cache_dir = GatewayMediaSessionAuth.private_speech_cache(SPEECH_CACHE_DIR)
+    extension = 'audio' if oauth_media else ('wav' if engine == 'openai-realtime' else 'mp3')  # gateway-bridge
+    file_path = cache_dir.joinpath(f'{name}.{extension}')
+    file_body_path = cache_dir.joinpath(f'{name}.json')
 
     # Return cached result if available
     if file_path.is_file():
@@ -833,7 +850,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
             data={'engine': engine, 'cached': True},
         )
         content_type = 'audio/wav' if engine == 'openai-realtime' else None
-        if USE_SLIM and engine != 'openai-realtime':
+        if (USE_SLIM and engine != 'openai-realtime') or oauth_media:  # gateway-bridge
             async with aiofiles.open(file_path.with_suffix('.mime')) as f:
                 content_type = await f.read()
         return FileResponse(file_path, media_type=content_type)
@@ -903,7 +920,7 @@ async def _transcribe_openai(request, file_path, filename, languages, file_dir, 
         api_base_url = await Config.get('audio.stt.openai.api_base_url')
         request_format = (await Config.get('audio.stt.openai.api_request_format') or 'multipart').lower()
 
-        headers = {'Authorization': f'Bearer {api_key}'}
+        headers = {'Authorization': await GatewayMediaSessionAuth.authorization(request, user, api_base_url, api_key)}  # gateway-bridge
         if user and ENABLE_FORWARD_USER_INFO_HEADERS:
             headers = include_user_info_headers(headers, user)
 
@@ -925,6 +942,7 @@ async def _transcribe_openai(request, file_path, filename, languages, file_dir, 
                     headers={**headers, 'Content-Type': 'application/json'},
                     json=payload,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    allow_redirects=GatewayMediaSessionAuth.allow_redirects(request),  # gateway-bridge
                 )
             else:
                 form_data = aiohttp.FormData()
@@ -943,6 +961,7 @@ async def _transcribe_openai(request, file_path, filename, languages, file_dir, 
                     headers=headers,
                     data=form_data,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                    allow_redirects=GatewayMediaSessionAuth.allow_redirects(request),  # gateway-bridge
                 )
             if r.status == 200:
                 break
@@ -956,6 +975,8 @@ async def _transcribe_openai(request, file_path, filename, languages, file_dir, 
             await f.write(JSONCodec.dumps(data))
         return data
     except Exception as e:
+        if GatewayMediaSessionAuth.is_enabled(request) and isinstance(e, HTTPException):  # gateway-bridge
+            raise
         log.exception(e)
         detail = None
         if r is not None:

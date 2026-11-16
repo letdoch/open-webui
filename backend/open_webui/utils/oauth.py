@@ -1618,11 +1618,11 @@ class OAuthManager:
     async def get_user_role(self, user, user_data, *, token_claims: dict | None = None):
         auth_config = await get_oauth_runtime_config()
         user_count = await Users.get_num_users()
-        if user and user_count == 1:
+        if not auth_config.ENABLE_OAUTH_ROLE_MANAGEMENT and user and user_count == 1:  # gateway-bridge
             # If the user is the only user, assign the role "admin" - actually repairs role for single user on login
             log.debug('Assigning the only user the admin role')
             return 'admin'
-        if not user and user_count == 0:
+        if not auth_config.ENABLE_OAUTH_ROLE_MANAGEMENT and not user and user_count == 0:  # gateway-bridge
             # First-user bootstrap: skip role management gating so the
             # instance can be initialized.  We intentionally return the
             # default role here (not 'admin') — admin promotion happens
@@ -1665,7 +1665,7 @@ class OAuthManager:
             log.debug('Accepted admin roles: %s', oauth_admin_roles)
 
             # If roles are present in the token, they must match; otherwise deny access
-            if oauth_roles:
+            if oauth_roles or oauth_allowed_roles or oauth_admin_roles:  # gateway-bridge
                 matched = False
                 for allowed_role in oauth_allowed_roles:
                     if allowed_role == '*' or allowed_role in oauth_roles:
@@ -2214,7 +2214,7 @@ class OAuthManager:
                     # Atomically check if this is the only user *after* the
                     # insert to avoid TOCTOU race on first-user registration.
                     # Matches signup_handler pattern.
-                    if await Users.get_num_users(db=db) == 1:
+                    if not auth_config.ENABLE_OAUTH_ROLE_MANAGEMENT and await Users.get_num_users(db=db) == 1:  # gateway-bridge
                         await Users.update_user_role_by_id(user.id, 'admin', db=db)
                         user = await Users.get_user_by_id(user.id, db=db)
 

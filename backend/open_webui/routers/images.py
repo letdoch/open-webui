@@ -44,6 +44,7 @@ from open_webui.utils.images.comfyui import (
 )
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.session_pool import get_session
+from open_webui.gateway_bridge import GatewayMediaSessionAuth  # gateway-bridge
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -640,7 +641,9 @@ async def image_generations(
     try:
         if image_config.IMAGE_GENERATION_ENGINE == 'openai':
             headers = {
-                'Authorization': f'Bearer {image_config.IMAGES_OPENAI_API_KEY}',
+                'Authorization': await GatewayMediaSessionAuth.authorization(  # gateway-bridge
+                    request, user, image_config.IMAGES_OPENAI_API_BASE_URL, image_config.IMAGES_OPENAI_API_KEY
+                ),
                 'Content-Type': 'application/json',
             }
 
@@ -677,6 +680,7 @@ async def image_generations(
                 json=data,
                 headers=headers,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                allow_redirects=GatewayMediaSessionAuth.allow_redirects(request),  # gateway-bridge
             ) as r:
                 r.raise_for_status()
                 res = await r.json(content_type=None)
@@ -685,12 +689,20 @@ async def image_generations(
 
             for image in res['data']:
                 if image_url := image.get('url', None):
-                    image_data, content_type = await get_image_data(
-                        image_url,
-                        {k: v for k, v in headers.items() if k != 'Content-Type'}
-                        if _is_same_origin(image_url, image_config.IMAGES_OPENAI_API_BASE_URL)
-                        else None,
-                    )
+                    if GatewayMediaSessionAuth.is_enabled(request):  # gateway-bridge
+                        image_data, content_type = await GatewayMediaSessionAuth.fetch_image_data(
+                            request,
+                            image_url,
+                            {k: v for k, v in headers.items() if k != 'Content-Type'},
+                            image_config.IMAGES_OPENAI_API_BASE_URL,
+                        )
+                    else:
+                        image_data, content_type = await get_image_data(
+                            image_url,
+                            {k: v for k, v in headers.items() if k != 'Content-Type'}
+                            if _is_same_origin(image_url, image_config.IMAGES_OPENAI_API_BASE_URL)
+                            else None,
+                        )
                 else:
                     image_data, content_type = await get_image_data(image['b64_json'])
 
@@ -859,6 +871,8 @@ async def image_generations(
                 images.append(image_file)
             return images
     except Exception as e:
+        if GatewayMediaSessionAuth.is_enabled(request) and isinstance(e, HTTPException):  # gateway-bridge
+            raise
         error = e
         if isinstance(e, aiohttp.ClientResponseError):
             error = e.message
@@ -1001,7 +1015,9 @@ async def image_edits(
     try:
         if image_config.IMAGE_EDIT_ENGINE == 'openai':
             headers = {
-                'Authorization': f'Bearer {image_config.IMAGES_EDIT_OPENAI_API_KEY}',
+                'Authorization': await GatewayMediaSessionAuth.authorization(  # gateway-bridge
+                    request, user, image_config.IMAGES_EDIT_OPENAI_API_BASE_URL, image_config.IMAGES_EDIT_OPENAI_API_KEY
+                ),
             }
 
             if ENABLE_FORWARD_USER_INFO_HEADERS:
@@ -1060,6 +1076,7 @@ async def image_edits(
                 headers=headers,
                 data=form,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                allow_redirects=GatewayMediaSessionAuth.allow_redirects(request),  # gateway-bridge
             ) as r:
                 r.raise_for_status()
                 res = await r.json(content_type=None)
@@ -1067,12 +1084,20 @@ async def image_edits(
             images = []
             for image in res['data']:
                 if image_url := image.get('url', None):
-                    image_data, content_type = await get_image_data(
-                        image_url,
-                        {k: v for k, v in headers.items() if k != 'Content-Type'}
-                        if _is_same_origin(image_url, image_config.IMAGES_EDIT_OPENAI_API_BASE_URL)
-                        else None,
-                    )
+                    if GatewayMediaSessionAuth.is_enabled(request):  # gateway-bridge
+                        image_data, content_type = await GatewayMediaSessionAuth.fetch_image_data(
+                            request,
+                            image_url,
+                            {k: v for k, v in headers.items() if k != 'Content-Type'},
+                            image_config.IMAGES_EDIT_OPENAI_API_BASE_URL,
+                        )
+                    else:
+                        image_data, content_type = await get_image_data(
+                            image_url,
+                            {k: v for k, v in headers.items() if k != 'Content-Type'}
+                            if _is_same_origin(image_url, image_config.IMAGES_EDIT_OPENAI_API_BASE_URL)
+                            else None,
+                        )
                 else:
                     image_data, content_type = await get_image_data(image['b64_json'])
 
@@ -1221,6 +1246,8 @@ async def image_edits(
 
             return images
     except Exception as e:
+        if GatewayMediaSessionAuth.is_enabled(request) and isinstance(e, HTTPException):  # gateway-bridge
+            raise
         error = e
         if isinstance(e, aiohttp.ClientResponseError):
             error = e.message

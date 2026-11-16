@@ -291,6 +291,7 @@ from open_webui.utils.tool_approval import (
     resolve_tool_call_output,
 )
 from open_webui.utils.tools import set_terminal_servers, set_tool_servers
+from open_webui.gateway_bridge import GatewayBridgeBootstrap, GatewayPortalRouter  # gateway-bridge
 
 if SAFE_MODE:
     print('SAFE MODE ENABLED')
@@ -393,6 +394,7 @@ async def lifespan(app: FastAPI):
     from open_webui.utils.mfa import validate_mfa_configuration
 
     await validate_mfa_configuration()
+    await GatewayBridgeBootstrap.apply(app)  # gateway-bridge
     await initialize_runtime_config(app)
     await migrate_legacy_webhook_config()
     request = Request(
@@ -864,6 +866,7 @@ app.include_router(utils.router, prefix='/api/v1/utils', tags=['utils'])
 app.include_router(terminals.router, prefix='/api/v1/terminals', tags=['terminals'])
 app.include_router(automations.router, prefix='/api/v1/automations', tags=['automations'])
 app.include_router(calendar.router, prefix='/api/v1/calendars', tags=['calendars'])
+app.include_router(GatewayPortalRouter.build(), prefix='/api/v1/gateway-bridge', tags=['gateway-bridge'])  # gateway-bridge
 
 # SCIM 2.0 API for identity management
 if ENABLE_SCIM:
