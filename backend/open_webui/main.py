@@ -291,7 +291,7 @@ from open_webui.utils.tool_approval import (
     resolve_tool_call_output,
 )
 from open_webui.utils.tools import set_terminal_servers, set_tool_servers
-from open_webui.gateway_bridge import GatewayBridgeBootstrap, GatewayPortalRouter  # gateway-bridge
+from open_webui.gateway_bridge import GatewayBridgeBootstrap, GatewayPortalRouter, TreeNoteRouter  # gateway-bridge
 
 if SAFE_MODE:
     print('SAFE MODE ENABLED')
@@ -867,6 +867,7 @@ app.include_router(terminals.router, prefix='/api/v1/terminals', tags=['terminal
 app.include_router(automations.router, prefix='/api/v1/automations', tags=['automations'])
 app.include_router(calendar.router, prefix='/api/v1/calendars', tags=['calendars'])
 app.include_router(GatewayPortalRouter.build(), prefix='/api/v1/gateway-bridge', tags=['gateway-bridge'])  # gateway-bridge
+app.include_router(TreeNoteRouter.build(), prefix='/api/v1/gateway-bridge/tree-notes', tags=['gateway-bridge'])  # gateway-bridge
 
 # SCIM 2.0 API for identity management
 if ENABLE_SCIM:

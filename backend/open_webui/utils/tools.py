@@ -107,6 +107,7 @@ from open_webui.tools.builtin import (
     update_skill_files,
     write_note,
 )
+from open_webui.gateway_bridge import GatewayBridgeBootstrap, TreeNoteTools  # gateway-bridge
 from open_webui.utils.access_control import has_access, has_connection_access, has_permission
 from open_webui.utils.chat_id import is_saved_chat_id, is_temporary_chat_id
 from open_webui.utils.headers import (
@@ -870,7 +871,17 @@ async def get_builtin_tools(
     if is_note_chat or (
         is_builtin_tool_enabled('notes') and config.get('notes.enable') and await has_user_permission('notes')
     ):
-        builtin_functions.extend([search_notes, view_note, write_note, replace_note_content])
+        if not is_note_chat and GatewayBridgeBootstrap.is_tree_notes_enabled(request):  # gateway-bridge
+            builtin_functions.extend(  # gateway-bridge
+                [  # gateway-bridge
+                    TreeNoteTools.search_tree_notes,  # gateway-bridge
+                    TreeNoteTools.view_tree_note,  # gateway-bridge
+                    TreeNoteTools.create_tree_note,  # gateway-bridge
+                    TreeNoteTools.update_tree_note_part,  # gateway-bridge
+                ]  # gateway-bridge
+            )  # gateway-bridge
+        else:  # gateway-bridge
+            builtin_functions.extend([search_notes, view_note, write_note, replace_note_content])
 
     # Channels tools - search channels and messages
     if is_builtin_tool_enabled('channels') and config.get('channels.enable') and await has_user_permission('channels'):
@@ -1105,7 +1116,7 @@ def clean_properties(schema: dict):
         del schema['default']
 
     # fix missing type
-    if 'type' not in schema and 'anyOf' not in schema and 'properties' not in schema:
+    if 'type' not in schema and 'anyOf' not in schema and 'properties' not in schema and '$ref' not in schema:  # gateway-bridge
         schema['type'] = 'string'
 
     if 'properties' in schema:

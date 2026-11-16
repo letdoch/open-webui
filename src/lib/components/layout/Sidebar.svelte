@@ -116,6 +116,7 @@
 	import MoreHorizontalIcon from './Sidebar/icons/MoreHorizontal.svelte';
 	import MobileSwipePanel from '../common/MobileSwipePanel.svelte';
 	import PortalNavItem from '$lib/components/portal/PortalNavItem.svelte'; // gateway-bridge
+	import { fetchTreeNotesStatus } from '$lib/components/notes_tree/api'; // gateway-bridge
 
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
@@ -314,9 +315,11 @@
 		}
 	};
 
-	const getMenuItemMeta = (id) => {
+	let treeNotesEnabled = false; // gateway-bridge
+
+	$: getMenuItemMeta = (id) => { // gateway-bridge
 		const items = {
-			notes: { label: $i18n.t('Notes'), href: '/notes', iconType: 'note' },
+			notes: { label: $i18n.t('Notes'), href: treeNotesEnabled ? '/tree-notes' : '/notes', iconType: 'note' }, // gateway-bridge
 			workspace: { label: $i18n.t('Workspace'), href: '/workspace', iconType: 'workspace' },
 			automations: { label: $i18n.t('Automations'), href: '/automations', iconType: 'automations' },
 			calendar: { label: $i18n.t('Calendar'), href: '/calendar', iconType: 'calendar' },
@@ -334,6 +337,9 @@
 	};
 
 	const getActiveMenuItemId = (pathname) => {
+		if (pathname === '/tree-notes' || pathname.startsWith('/tree-notes/')) { // gateway-bridge
+			return 'notes'; // gateway-bridge
+		} // gateway-bridge
 		for (const [id, pathPrefix] of Object.entries(menuItemPathPrefixes)) {
 			if (pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`)) {
 				return id;
@@ -796,7 +802,12 @@
 	onMount(() => {
 		const socketInstance = $socket;
 		socketInstance?.on('connect', initChannels);
-		return () => socketInstance?.off('connect', initChannels);
+		const controller = new AbortController(); // gateway-bridge
+		void fetchTreeNotesStatus(controller.signal).then((s) => (treeNotesEnabled = s.enabled)); // gateway-bridge
+		return () => { // gateway-bridge
+			controller.abort(); // gateway-bridge
+			socketInstance?.off('connect', initChannels);
+		};
 	});
 
 	onMount(async () => {

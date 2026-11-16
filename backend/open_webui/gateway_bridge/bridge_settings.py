@@ -37,11 +37,13 @@ class GatewayBridgeSettings(BaseModel):
     mcp_server_name: str = 'Gateway MCP'
     portal_url: str = ''
     portal_label: str = 'Portal'
+    tree_notes_enabled: bool = True
+    tree_notes_promote_url: str = ''
 
-    @field_validator('gateway_base_url', 'mcp_server_url', 'portal_url', mode='after')
+    @field_validator('gateway_base_url', 'mcp_server_url', 'portal_url', 'tree_notes_promote_url', mode='after')
     @classmethod
     def _validate_url(cls, value: str, info: ValidationInfo) -> str:
-        """Validate optional endpoint URLs and enforce HTTPS on portal URLs.
+        """Validate optional endpoint URLs and enforce HTTPS on portal and promote URLs.
 
         Args:
             value: Raw configured URL string.
@@ -57,9 +59,11 @@ class GatewayBridgeSettings(BaseModel):
         if not stripped:
             return ''
         field_name = info.field_name or 'url'
-        https_only = field_name == 'portal_url'
+        https_only = field_name in ('portal_url', 'tree_notes_promote_url')
         cls._check_url_parts(stripped, field_name, https_only)
-        return stripped.rstrip('/') if field_name == 'gateway_base_url' else stripped
+        if field_name in ('gateway_base_url', 'tree_notes_promote_url'):
+            return stripped.rstrip('/')
+        return stripped
 
     @field_validator(
         'gateway_api_key',
@@ -175,3 +179,11 @@ class GatewayBridgeSettings(BaseModel):
             Non-empty portal label string.
         """
         return self.portal_label or 'Portal'
+
+    def normalized_tree_notes_promote_url(self) -> str:
+        """Return the configured HTTPS promotion endpoint without a trailing slash.
+
+        Returns:
+            Normalized HTTPS promotion URL, or an empty string when unset.
+        """
+        return self.tree_notes_promote_url.rstrip('/')

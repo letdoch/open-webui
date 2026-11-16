@@ -281,7 +281,8 @@ class GatewayMediaSessionAuth:
         if base_path:
             allowed_prefixes.add(base_path)
         matches_prefix = any(
-            parsed.path.startswith(prefix) and IMAGE_FILE_SUFFIX_PATTERN.fullmatch(parsed.path.removeprefix(prefix)) is not None
+            parsed.path.startswith(prefix)
+            and IMAGE_FILE_SUFFIX_PATTERN.fullmatch(parsed.path.removeprefix(prefix)) is not None
             for prefix in allowed_prefixes
         )
         canonical_origin = parsed.scheme == trusted.scheme and parsed.netloc == trusted.netloc

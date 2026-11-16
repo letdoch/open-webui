@@ -5,10 +5,19 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel, ConfigDict, ValidationError
+from sqlalchemy import text
 
 from open_webui.gateway_bridge.bridge_settings import GatewayBridgeSettings
+from open_webui.gateway_bridge.tree_notes import (
+    TreeNoteDailyEntry,
+    TreeNoteExternalRef,
+    TreeNoteNode,
+    TreeNotePart,
+    TreeNoteTag,
+)
+from open_webui.internal.db import Base, async_engine
 from open_webui.models.config import Config
 
 log = logging.getLogger(__name__)
@@ -91,8 +100,46 @@ class GatewayBridgeBootstrap:
         if resolved.mcp_server_url:
             await cls._apply_mcp(resolved)
 
+        if resolved.tree_notes_enabled:
+            await cls._apply_tree_notes_schema()
+
         log.info('Gateway bridge configuration applied during startup.')
         return resolved
+
+    @classmethod
+    def is_tree_notes_enabled(cls, request: Request) -> bool:
+        """Return whether the gateway bridge and hierarchical tree notes are enabled.
+
+        Args:
+            request: Active FastAPI HTTP request.
+
+        Returns:
+            ``True`` when ``enabled`` and ``tree_notes_enabled`` are both active.
+        """
+        cached = getattr(request.app.state, 'gateway_bridge_settings', None)
+        settings = cached if isinstance(cached, GatewayBridgeSettings) else GatewayBridgeSettings.load()
+        return bool(settings.enabled and settings.tree_notes_enabled)
+
+    @classmethod
+    async def _apply_tree_notes_schema(cls) -> None:
+        """Create isolated ``tree_note_*`` tables in topological FK order if absent."""
+        tables = [
+            TreeNoteNode.__table__,
+            TreeNoteDailyEntry.__table__,
+            TreeNotePart.__table__,
+            TreeNoteTag.__table__,
+            TreeNoteExternalRef.__table__,
+        ]
+        async with async_engine.begin() as conn:
+            if conn.dialect.name == 'postgresql':
+                await conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('gateway_bridge_tree_notes_ddl'))"))
+            await conn.run_sync(
+                lambda sync_conn: Base.metadata.create_all(
+                    bind=sync_conn,
+                    tables=tables,
+                    checkfirst=True,
+                )
+            )
 
     @classmethod
     async def _apply_openai(cls, base_url: str, settings: GatewayBridgeSettings) -> None:
