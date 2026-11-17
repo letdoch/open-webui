@@ -31,6 +31,7 @@
 
 	let mode: 'markdown' | 'split' | 'parts' = 'split';
 	let draftMarkdown = '';
+	let syncedMarkdown = '';
 	let syncedNodeId = '';
 	let syncedBasis = '';
 	let saving = false;
@@ -52,13 +53,19 @@
 	let addLanguage = '';
 	let addChecked: '' | 'true' | 'false' = '';
 
-	$: if (node.id !== syncedNodeId || (node.basis_sha256 !== syncedBasis && !isDirty)) {
-		draftMarkdown = node.rendered_markdown;
-		syncedNodeId = node.id;
-		syncedBasis = node.basis_sha256;
-		conflict = null;
-		editingPartId = null;
+	function syncFromNode(next: ReadNodeResponse) {
+		const currentlyDirty = syncedNodeId === next.id && draftMarkdown !== syncedMarkdown;
+		if (next.id !== syncedNodeId || (next.basis_sha256 !== syncedBasis && !currentlyDirty)) {
+			draftMarkdown = next.rendered_markdown;
+			syncedMarkdown = next.rendered_markdown;
+			syncedNodeId = next.id;
+			syncedBasis = next.basis_sha256;
+			conflict = null;
+			editingPartId = null;
+		}
 	}
+
+	$: syncFromNode(node);
 
 	$: isDirty = draftMarkdown !== node.rendered_markdown;
 	$: renderedHtml = DOMPurify.sanitize(String(marked.parse(draftMarkdown || '', { async: false })));
@@ -108,6 +115,7 @@
 			});
 			syncedBasis = updated.basis_sha256;
 			draftMarkdown = updated.rendered_markdown;
+			syncedMarkdown = updated.rendered_markdown;
 			onNodeUpdated(updated);
 			toast.success($i18n.t('Saved'));
 		} catch (err) {
@@ -128,6 +136,7 @@
 		conflict = null;
 		await onReloadNode();
 		draftMarkdown = node.rendered_markdown;
+		syncedMarkdown = node.rendered_markdown;
 		syncedBasis = node.basis_sha256;
 	}
 
