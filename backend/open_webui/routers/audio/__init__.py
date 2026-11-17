@@ -467,7 +467,7 @@ async def _tts_openai(request, payload, file_path, file_body_path, user):
         content_type = r.headers.get('Content-Type', 'audio/mpeg')
 
         if GatewayMediaSessionAuth.is_enabled(request):  # gateway-bridge
-            GatewayMediaSessionAuth.validate_audio(audio_data, content_type)
+            audio_data = GatewayMediaSessionAuth.validate_audio(audio_data, content_type)  # gateway-bridge
             await _write_tts_cache(file_path, audio_data, file_body_path, payload, content_type)
             async with aiofiles.open(file_path.with_suffix('.mime'), 'w') as f:
                 await f.write(content_type)

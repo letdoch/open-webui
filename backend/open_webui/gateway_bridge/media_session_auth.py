@@ -6,6 +6,7 @@ import hashlib
 import io
 import logging
 import re
+import struct
 import wave
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -201,44 +202,88 @@ class GatewayMediaSessionAuth:
         return directory
 
     @classmethod
-    def validate_audio(cls, data: bytes, content_type: str) -> None:
+    def validate_audio(cls, data: bytes, content_type: str) -> bytes:
         """Reject mislabeled, truncated, or raw PCM audio payloads from media backends.
 
         Args:
             data: Raw audio response bytes.
             content_type: Response ``Content-Type`` header value.
 
+        Returns:
+            Validated audio bytes (normalized to concrete RIFF/data lengths for streaming WAV).
+
         Raises:
             HTTPException: The payload is not valid WAV or MP3 audio.
         """
         mime = content_type.split(';')[0].strip().lower()
         if mime in ('audio/wav', 'audio/x-wav', 'audio/wave'):
-            cls._validate_wav(data)
-            return
+            return cls._validate_wav(data)
         if mime in ('audio/mpeg', 'audio/mp3'):
             cls._validate_mp3(data)
-            return
+            return data
         raise HTTPException(
             status_code=502,
             detail='System OAuth speech requires WAV or MP3 audio; raw PCM is not accepted.',
         )
 
     @classmethod
-    def _validate_wav(cls, data: bytes) -> None:
+    def _normalize_streaming_wav(cls, data: bytes) -> bytes:
+        """Rewrite streaming ``0xFFFFFFFF`` RIFF and ``data`` chunk sizes to exact byte lengths.
+
+        Args:
+            data: Raw WAV response bytes.
+
+        Returns:
+            Normalized WAV payload with finite RIFF and ``data`` chunk lengths.
+
+        Raises:
+            ValueError: Streaming WAV container sizes are truncated or invalid.
+        """
+        if len(data) >= 44 and data[:4] == b'RIFF' and data[8:12] == b'WAVE':
+            riff_size = struct.unpack_from('<I', data, 4)[0]
+            pos = 12
+            while pos + 8 <= len(data):
+                chunk_id, chunk_size = struct.unpack_from('<4sI', data, pos)
+                if chunk_id == b'data':
+                    if riff_size == 0xFFFFFFFF or chunk_size == 0xFFFFFFFF:
+                        payload_len = len(data) - (pos + 8)
+                        riff_len = len(data) - 8
+                        if payload_len <= 0 or riff_len > 0xFFFFFFFE:
+                            raise ValueError('Invalid streaming WAV length')
+                        return (
+                            b'RIFF'
+                            + struct.pack('<I', riff_len)
+                            + data[8 : pos + 4]
+                            + struct.pack('<I', payload_len)
+                            + data[pos + 8 :]
+                        )
+                    return data
+                if pos + 8 + chunk_size > len(data):
+                    raise ValueError('Truncated WAV chunk')
+                pos += 8 + chunk_size + (chunk_size & 1)
+        return data
+
+    @classmethod
+    def _validate_wav(cls, data: bytes) -> bytes:
         """Verify structural WAV headers and exact sample byte length.
 
         Args:
             data: Raw WAV response bytes.
 
+        Returns:
+            Validated WAV bytes with concrete RIFF/data sizes.
+
         Raises:
             HTTPException: The payload is malformed or truncated WAV audio.
         """
         try:
-            with wave.open(io.BytesIO(data), 'rb') as audio:
+            normalized = cls._normalize_streaming_wav(data)
+            with wave.open(io.BytesIO(normalized), 'rb') as audio:
                 frames = audio.getnframes()
                 frame_size = audio.getnchannels() * audio.getsampwidth()
                 if frames <= 0 or audio.getframerate() <= 0 or len(audio.readframes(frames)) != frames * frame_size:
                     raise ValueError('Invalid WAV frame payload')
+            return normalized
         except (EOFError, ValueError, wave.Error):
             raise HTTPException(status_code=502, detail='Media backend returned invalid WAV audio.') from None
 
