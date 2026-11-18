@@ -17,6 +17,8 @@ This repository extends upstream Open WebUI with an isolated **Gateway Bridge** 
 - `bridge_bootstrap.py` - `GatewayBridgeBootstrap.apply(app)` runs during `lifespan` startup before runtime config initialization, configures OpenAI, RAG embedding/reranker, Audio TTS/STT, Image generation/edit, and native MCP `tool_server.connections` settings in Open WebUI `Config`, and initializes the `tree_note_*` database tables idempotently in topological FK order when enabled.
 - `media_session_auth.py` - `GatewayMediaSessionAuth` resolves per-user OAuth session bearer tokens for gateway TTS/STT/Image requests, checks target URLs against the configured `gateway_base_url`, disables HTTP redirects on credentialed gateway calls, validates WAV/MP3 speech audio and PNG image responses, and maintains private temporary speech/image helpers when `system_oauth_media` is enabled.
 - `portal_router.py` - `GatewayPortalRouter.build()` provides `GET /api/v1/gateway-bridge/portal` returning `{enabled, url, label}` for authenticated verified users.
+- `task_ha_settings.py` - `TaskHaSettings`, the strict frozen settings block `task_ha` of `GatewayBridgeSettings`.
+- `task_ha/` - Task drain (`drain.py`: states, `SIGTERM` and drain file, admission of external requests, bounded wait started at the signal, cancel marker), instance liveness (`liveness.py`: instance id, heartbeat key, dead-owner check, bounded periodic runner), reaper of dead instances' chats (`reaper.py`), storage protocols and orphan target (`local_tasks.py`, `orphan_store.py`, `task_store.py`, `orphan_target.py`), process runtime assembly (`process_runtime.py`), the adapter to Open WebUI's task, chat and event code (`store.py`) and the `TaskHa` facade used by the hooks (`runtime.py`). Design: [TASK_HA.md](TASK_HA.md).
 
 #### Tree Notes Package (`backend/open_webui/gateway_bridge/tree_notes/`)
 
@@ -72,6 +74,9 @@ rg -n "gateway-bridge" backend/ src/
 | `backend/open_webui/routers/images.py` | Integrates `GatewayMediaSessionAuth` into OpenAI image generation (`image_generations`) and edit (`image_edits`) paths when `system_oauth_media` is active, keeping stock behavior when disabled. |
 | `src/lib/components/layout/Sidebar.svelte` | Imports `PortalNavItem` and `fetchTreeNotesStatus`; mounts `<PortalNavItem />` in collapsed and expanded rails; routes the pinned `Notes` navigation item to `/tree-notes` (and highlights `/tree-notes/*` as active) when Tree Notes is enabled. |
 | `README.md` | Adds a `<!-- gateway-bridge -->` Fork Integration link block under `### Documentation` while preserving upstream `docs`/`roadmap`, branding, and `LICENSE`. |
+| `backend/open_webui/tasks.py` | `redis_save_task` stores the owning instance id as the task key value (`TaskHa.owner_token()`); the top of `redis_list_tasks` delegates to `TaskHa.list_tasks` when the feature is enabled (owner-aware listing; the stock body is untouched). |
+| `backend/open_webui/main.py` (task drain) | `await TaskHa.start(app, OpenWebuiTaskStore)` after the Valkey client exists and `await TaskHa.quiesce()` right after `yield` in `lifespan`; `/ready` answers 503 while draining; `TaskHa.admit(request)` is the first line of `chat_completion` (external HTTP requests only); `error_detail = TaskHa.cancel_error()` before the re-raise in the `except asyncio.CancelledError` of `process_chat`, so the stock `finally` stores and emits the `server_draining` error. |
+| `backend/open_webui/utils/automations.py` | `scheduler_worker_loop` claims no timers, automations or calendar alerts while `TaskHa.is_draining()`. |
 
 ## Configuration Reference
 
@@ -94,6 +99,7 @@ Supported JSON schema fields (strictly validated; unknown keys are rejected):
 - `portal_url` (`str`), `portal_label` (`str`): Embedded HTTPS portal URL and sidebar navigation label.
 - `tree_notes_enabled` (`bool`): Enables the `tree_note_*` schema bootstrap, REST router, built-in chat tools, and `/tree-notes` sidebar routing when `enabled` is `true` (default `true`).
 - `tree_notes_promote_url` (`str`): Optional HTTPS endpoint URL for forwarding confirmed task/idea promotions with the caller's `system_oauth` bearer token (leave empty to keep promote unavailable with `503`).
+- `task_ha` (object): Task drain and instance liveness for multi-instance deployments ([TASK_HA.md](TASK_HA.md)); inert unless `task_ha.enabled` is `true`, independent of the master `enabled`. Fields: `enabled` (`bool`, default `false`), `max_stream_seconds` (`int` 1-86400, default `300`), `cancel_grace_seconds` (`int` 1-300, default `30`), `instance_heartbeat_seconds` (`int` 1-60, default `5`), `instance_ttl_seconds` (`int` 1-600, default `30`; `ttl - heartbeat` must be at least `valkey_failover_window_seconds + 10`), `valkey_failover_window_seconds` (`int` 1-300, default `15`), `drain_file` (`str`, default empty; a path whose existence starts draining), `drain_settle_seconds` (`int` 0-60, default `5`).
 
 ## Rebase Checklist
 

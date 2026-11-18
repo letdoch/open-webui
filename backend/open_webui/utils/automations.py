@@ -28,6 +28,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.events import EVENTS, build_event, publish_event
+from open_webui.gateway_bridge.task_ha import TaskHa  # gateway-bridge
 from open_webui.internal.db import get_async_db
 from open_webui.models.automations import AutomationModel, AutomationRuns, Automations
 from open_webui.models.chats import ChatForm, Chats
@@ -84,6 +85,9 @@ async def scheduler_worker_loop(app) -> None:
     next_scheduler_poll = 0.0
 
     while True:
+        if TaskHa.is_draining():  # gateway-bridge: a draining instance claims no due work, its peers do
+            await asyncio.sleep(max(1, TIMER_POLL_INTERVAL))
+            continue
         try:
             now = time.monotonic()
             # Timers

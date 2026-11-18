@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from open_webui.env import REDIS_KEY_PREFIX, REDIS_RESPONSE_STREAM_TTL, REDIS_TASK_TTL
+from open_webui.gateway_bridge.task_ha import TaskHa  # gateway-bridge
 from open_webui.utils.json_codec import JSONCodec, dumps_bytes
 from open_webui.utils.misc import get_output_text
 from open_webui.utils.response import get_response_delta_key, handle_responses_streaming_event
@@ -89,7 +90,7 @@ async def redis_task_heartbeat(app):
 
 async def redis_save_task(redis: Redis, task_id: str, item_id: str | None):
     pipe = redis.pipeline(transaction=False)
-    pipe.set(f'{REDIS_TASKS_KEY}:{task_id}', '1', ex=REDIS_TASK_TTL or None)
+    pipe.set(f'{REDIS_TASKS_KEY}:{task_id}', TaskHa.owner_token(), ex=REDIS_TASK_TTL or None)  # gateway-bridge
     pipe.hset(REDIS_TASKS_KEY, task_id, item_id or '')
     if item_id:
         pipe.sadd(f'{REDIS_ITEM_TASKS_KEY}:{item_id}', task_id)
@@ -108,6 +109,8 @@ async def redis_cleanup_task(redis: Redis, task_id: str, item_id: str | None):
 
 
 async def redis_list_tasks(redis: Redis, item_id: str | None = None) -> list[str]:
+    if TaskHa.enabled():  # gateway-bridge: owner-aware listing, dead owners' tasks are hidden and reaped
+        return await TaskHa.list_tasks(redis, item_id)
     task_ids = list(
         await redis.smembers(f'{REDIS_ITEM_TASKS_KEY}:{item_id}')
         if item_id is not None

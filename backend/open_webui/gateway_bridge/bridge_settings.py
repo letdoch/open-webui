@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
+from open_webui.gateway_bridge.task_ha_settings import TaskHaSettings
+
 SETTINGS_FILE_ENV = 'GATEWAY_BRIDGE_SETTINGS_FILE'
 DEFAULT_SETTINGS_FILE = '/run/secrets/openwebui-settings.json'
 
@@ -39,6 +41,7 @@ class GatewayBridgeSettings(BaseModel):
     portal_label: str = 'Portal'
     tree_notes_enabled: bool = True
     tree_notes_promote_url: str = ''
+    task_ha: TaskHaSettings = TaskHaSettings()
 
     @field_validator('gateway_base_url', 'mcp_server_url', 'portal_url', 'tree_notes_promote_url', mode='after')
     @classmethod

@@ -292,6 +292,8 @@ from open_webui.utils.tool_approval import (
 )
 from open_webui.utils.tools import set_terminal_servers, set_tool_servers
 from open_webui.gateway_bridge import GatewayBridgeBootstrap, GatewayPortalRouter, TreeNoteRouter  # gateway-bridge
+from open_webui.gateway_bridge.task_ha import TaskHa  # gateway-bridge
+from open_webui.gateway_bridge.task_ha.store import OpenWebuiTaskStore  # gateway-bridge
 
 if SAFE_MODE:
     print('SAFE MODE ENABLED')
@@ -432,6 +434,7 @@ async def lifespan(app: FastAPI):
     from open_webui.socket.apps import connections as app_connections
 
     await app_connections.start(app.state.redis)
+    await TaskHa.start(app, OpenWebuiTaskStore)  # gateway-bridge
 
     if app.state.redis is not None:
         app.state.redis_task_command_listener = asyncio.create_task(redis_task_command_listener(app))
@@ -523,6 +526,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await TaskHa.quiesce()  # gateway-bridge
     await publish_event(request, EVENTS.SYSTEM_SHUTDOWN_STARTED, source='system')
     await app_connections.close()
 
@@ -1111,6 +1115,8 @@ async def chat_completion(
     form_data: dict,
     user=Depends(get_verified_user),
 ):
+    TaskHa.admit(request)  # gateway-bridge
+
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 
@@ -1736,6 +1742,7 @@ async def chat_completion(
                     await asyncio.shield(emit_cancel_event())
                 except Exception:
                     pass
+                error_detail = TaskHa.cancel_error()  # gateway-bridge: a server drain ends the chat with an error
                 raise  # re-raise to ensure proper task cancellation handling
             except Exception as e:
                 error_detail = e.detail if isinstance(e, HTTPException) else str(e)
@@ -3164,6 +3171,9 @@ async def readiness_check():
     """
     Returns 200 only when the application is ready to accept traffic.
     """
+
+    if TaskHa.is_draining():  # gateway-bridge
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Draining')
 
     # Ensure application startup work has completed
     if not getattr(app.state, 'startup_complete', False):
