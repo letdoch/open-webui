@@ -1,6 +1,6 @@
 # Upstream Integration Guide: Gateway Bridge, Portal & Tree Notes
 
-This repository extends upstream Open WebUI with an isolated **Gateway Bridge** backend package (including **Tree Notes** workspace persistence and tools) plus **Portal** and **Tree Notes** frontend modules so downstream deployments can configure model/media/tool backends, embed an external HTTPS portal, and provide hierarchical/daily notes without scattering custom logic across upstream files.
+This repository extends upstream Open WebUI with an isolated **Gateway Bridge** backend package (including **Tree Notes** workspace persistence and tools) plus **Portal** and **Tree Notes** frontend modules so downstream deployments can configure model/media/tool backends, embed an external HTTPS portal, and provide hierarchical/daily notes without scattering custom logic across upstream files. See [fork/ARCHITECTURE.md](fork/ARCHITECTURE.md) and [fork/WORKPLAN.md](fork/WORKPLAN.md) for the fork architecture, interface table, and open backlog.
 
 ## Design Goals
 
@@ -71,6 +71,7 @@ rg -n "gateway-bridge" backend/ src/
 | `backend/open_webui/routers/audio/__init__.py` | Integrates `GatewayMediaSessionAuth` into OpenAI TTS (`_tts_openai` / `speech`) and STT (`_transcribe_openai`) paths when `system_oauth_media` is active, keeping stock behavior when disabled. |
 | `backend/open_webui/routers/images.py` | Integrates `GatewayMediaSessionAuth` into OpenAI image generation (`image_generations`) and edit (`image_edits`) paths when `system_oauth_media` is active, keeping stock behavior when disabled. |
 | `src/lib/components/layout/Sidebar.svelte` | Imports `PortalNavItem` and `fetchTreeNotesStatus`; mounts `<PortalNavItem />` in collapsed and expanded rails; routes the pinned `Notes` navigation item to `/tree-notes` (and highlights `/tree-notes/*` as active) when Tree Notes is enabled. |
+| `README.md` | Adds a `<!-- gateway-bridge -->` Fork Integration link block under `### Documentation` while preserving upstream `docs`/`roadmap`, branding, and `LICENSE`. |
 
 ## Configuration Reference
 
@@ -97,7 +98,7 @@ Supported JSON schema fields (strictly validated; unknown keys are rejected):
 ## Rebase Checklist
 
 1. Fetch upstream tag/branch and rebase or merge onto the target upstream commit.
-2. Inspect any conflicts in the 7 upstream hook files listed above; preserve the `gateway-bridge` hook call sites while adopting surrounding upstream refactors.
+2. Inspect any conflicts in the 7 upstream code hook files listed above (`main.py`, `models/users.py`, `utils/tools.py`, `utils/oauth.py`, `routers/audio/__init__.py`, `routers/images.py`, `Sidebar.svelte`) plus `README.md`; preserve the `gateway-bridge` hook call sites while adopting surrounding upstream refactors.
 3. Verify `Config` key names in `backend/open_webui/config.py` (`openai.*`, `rag.*`, `audio.*`, `image_generation.*`, `images.edit.*`, `tool_server.connections`) match `bridge_bootstrap.py`.
 4. Verify `UsersTable.delete_user_by_id` in `backend/open_webui/models/users.py` still invokes `TreeNoteRepository.delete_all_for_user(session, id)` before deleting `"user"`, and `clean_properties` in `backend/open_webui/utils/tools.py` preserves `$ref` schemas.
 5. Verify OAuth role checks in `backend/open_webui/utils/oauth.py` still prevent unintended admin promotion or ungrouped access under `ENABLE_OAUTH_ROLE_MANAGEMENT`.

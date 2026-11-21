@@ -105,6 +105,15 @@ See the [docs](https://docs.openwebui.com/) for configuration and usage, and the
 
 For Docker Compose, Kubernetes, and other setups, see the [installation docs](https://docs.openwebui.com/getting-started/).
 
+<!-- gateway-bridge -->
+#### Fork Integration
+
+- **Fork Architecture & Interfaces:** [docs/fork/ARCHITECTURE.md](docs/fork/ARCHITECTURE.md)
+- **Fork Workplan & Backlog:** [docs/fork/WORKPLAN.md](docs/fork/WORKPLAN.md)
+- **Upstream Integration & Rebase Guide:** [docs/UPSTREAM_INTEGRATION.md](docs/UPSTREAM_INTEGRATION.md)
+- **Developer Skill:** [.agents/skills/open-webui-development/SKILL.md](.agents/skills/open-webui-development/SKILL.md)
+<!-- /gateway-bridge -->
+
 ### Support
 
 [Open an issue](https://github.com/open-webui/open-webui/issues) or [start a discussion](https://github.com/open-webui/open-webui/discussions).
